@@ -1,34 +1,37 @@
 import streamlit as st
-import whisper
+from faster_whisper import WhisperModel
 import tempfile
 import os
+import subprocess
 
-st.set_page_config(page_title="Transkrypcja audio po polsku", layout="centered")
-st.title("📝 Transkrypcja audio (PL) z Whisper")
+st.set_page_config(page_title="Transkrypcja audio (PL)", layout="centered")
+st.title("🎙️ Transkrypcja audio z języka polskiego")
 
 uploaded_file = st.file_uploader("Wgraj plik audio (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
 
-if uploaded_file is not None:
-    st.audio(uploaded_file, format="audio/mp3")
+if uploaded_file:
+    st.audio(uploaded_file)
 
-    with st.spinner("Transkrypcja w toku... może to potrwać chwilę."):
-        # Zapisz plik tymczasowo
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
-            tmp_file.write(uploaded_file.read())
-            tmp_path = tmp_file.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav:
+        audio_path = tmp_wav.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_in:
+            tmp_in.write(uploaded_file.read())
+            tmp_in.flush()
+            subprocess.call([
+                "ffmpeg", "-y", "-i", tmp_in.name,
+                "-ar", "16000", "-ac", "1", audio_path
+            ])
 
-        # Załaduj model
-        model = whisper.load_model("base")
-        
-        # Transkrypcja
-        result = model.transcribe(tmp_path, language="pl")
-        transcription = result["text"]
+    with st.spinner("Transkrypcja w toku..."):
+        model = WhisperModel("base", compute_type="int8")
+        segments, _ = model.transcribe(audio_path, language="pl")
+        transcription = " ".join([segment.text for segment in segments])
 
-        # Usuń plik tymczasowy
-        os.remove(tmp_path)
-
-        st.success("✅ Transkrypcja zakończona!")
-        st.subheader("📄 Tekst:")
+        st.success("✅ Gotowe!")
+        st.subheader("📄 Transkrypcja:")
         st.write(transcription)
 
-        st.download_button("📥 Pobierz transkrypcję jako plik .txt", transcription, file_name="transkrypcja.txt")
+        st.download_button("📥 Pobierz jako .txt", transcription, file_name="transkrypcja.txt")
+
+    os.remove(audio_path)
+    os.remove(tmp_in.name)
